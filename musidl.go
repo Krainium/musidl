@@ -413,10 +413,10 @@ type deezerResp struct {
         Total int    `json:"total"`
 }
 
-func searchDeezer(query string) []Track {
+func deezerFetch(startURL string, max int) []Track {
         var all []Track
-        nextURL := "https://api.deezer.com/search?q=" + url.QueryEscape(`artist:"`+query+`"`) + "&limit=100"
-        for nextURL != "" && len(all) < 500 {
+        nextURL := startURL
+        for nextURL != "" && len(all) < max {
                 resp, err := httpGet(nextURL)
                 if err != nil {
                         break
@@ -451,6 +451,17 @@ func searchDeezer(query string) []Track {
         return all
 }
 
+func searchDeezer(query string) []Track {
+        // Try artist-filtered search first (best for artist name queries).
+        artistURL := "https://api.deezer.com/search?q=" + url.QueryEscape(`artist:"`+query+`"`) + "&limit=100"
+        if results := deezerFetch(artistURL, 500); len(results) > 0 {
+                return results
+        }
+        // Fall back to plain search so song titles and mixed queries still work.
+        plainURL := "https://api.deezer.com/search?q=" + url.QueryEscape(query) + "&limit=100"
+        return deezerFetch(plainURL, 200)
+}
+
 // ── MusicBrainz API ───────────────────────────────────────────────────────────
 
 type mbResp struct {
@@ -470,10 +481,7 @@ type mbResp struct {
         } `json:"recordings"`
 }
 
-func searchMusicBrainz(query string) []Track {
-        enc := url.QueryEscape(`artist:"` + query + `"`)
-        apiURL := "https://musicbrainz.org/ws/2/recording/?query=" + enc + "&limit=100&fmt=json"
-
+func musicBrainzFetch(apiURL string) []Track {
         req, err := http.NewRequest("GET", apiURL, nil)
         if err != nil {
                 return nil
@@ -498,7 +506,7 @@ func searchMusicBrainz(query string) []Track {
                 if r.Title == "" {
                         continue
                 }
-                artistName := query
+                artistName := ""
                 if len(r.ArtistCredit) > 0 {
                         artistName = r.ArtistCredit[0].Artist.Name
                 }
@@ -520,6 +528,18 @@ func searchMusicBrainz(query string) []Track {
                 })
         }
         return tracks
+}
+
+func searchMusicBrainz(query string) []Track {
+        base := "https://musicbrainz.org/ws/2/recording/?limit=100&fmt=json&query="
+        // Try artist-filtered search first (best for artist name queries).
+        artistURL := base + url.QueryEscape(`artist:"`+query+`"`)
+        if results := musicBrainzFetch(artistURL); len(results) > 0 {
+                return results
+        }
+        // Fall back to recording title search so song titles and mixed queries work.
+        recordingURL := base + url.QueryEscape(`recording:"`+query+`"`)
+        return musicBrainzFetch(recordingURL)
 }
 
 // ── Multi-source parallel search ──────────────────────────────────────────────
@@ -1051,7 +1071,7 @@ func main() {
         // ── Get artist name ───────────────────────────────────────────────────
         artist := strings.Join(flag.Args(), " ")
         if artist == "" {
-                artist = prompt("Artist name")
+                artist = prompt("Artist name/Song Search")
         }
         if artist == "" {
                 oerror("No artist specified.")
