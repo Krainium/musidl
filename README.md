@@ -51,6 +51,7 @@ Search any artist across every country on earth and download **full songs** in o
 ## Build
 
 ```bash
+https://github.com/Krainium/musidl.git
 cd A/musidl
 go build -o musidl musidl.go
 ```
